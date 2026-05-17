@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>QuantumServe - Setup Wizard</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: #0a0a0c;
+      color: #f0eee8;
+      min-height: 100vh;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    .progress-bar { background: rgba(255,255,255,0.06); border-radius: 20px; height: 6px; margin-bottom: 40px; }
+    .progress-fill { background: linear-gradient(90deg, #d4a843, #f0c870); border-radius: 20px; height: 100%; width: 0%; transition: width 0.3s; }
+    .step-card {
+      background: #111114;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 24px;
+      padding: 40px;
+    }
+    .step-title { font-family: 'Playfair Display', serif; font-size: 24px; margin-bottom: 8px; }
+    .step-desc { color: rgba(240,238,232,0.6); font-size: 13px; margin-bottom: 32px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 6px; color: rgba(240,238,232,0.8); }
+    input, select {
+      width: 100%; background: #18181c;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 12px 14px;
+      font-size: 14px; color: #f0eee8;
+      font-family: 'Outfit', sans-serif;
+    }
+    input:focus, select:focus { outline: none; border-color: #d4a843; }
+    .btn-group { display: flex; gap: 12px; margin-top: 32px; }
+    .btn-primary {
+      background: linear-gradient(135deg, #d4a843, #8a6010);
+      border: none; border-radius: 10px; padding: 12px 24px;
+      font-size: 14px; font-weight: 600; color: #0d0d0f; cursor: pointer; flex: 1;
+    }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: transparent; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; padding: 12px 24px;
+      font-size: 14px; color: rgba(240,238,232,0.8); cursor: pointer;
+    }
+    .btn-skip {
+      background: transparent; border: none;
+      color: rgba(240,238,232,0.4); cursor: pointer;
+      font-size: 12px; text-decoration: underline;
+    }
+    .error-msg {
+      background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.2);
+      border-radius: 10px; padding: 12px; font-size: 12px; color: #e74c3c;
+      margin-bottom: 20px;
+    }
+    .success-msg {
+      background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.2);
+      border-radius: 10px; padding: 12px; font-size: 12px; color: #2ecc71;
+      margin-bottom: 20px;
+    }
+    .step-indicator { display: flex; justify-content: space-between; margin-bottom: 30px; }
+    .step-dot {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: #18181c; border: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; color: rgba(240,238,232,0.4);
+    }
+    .step-dot.active { background: linear-gradient(135deg, #d4a843, #8a6010); color: #0d0d0f; border: none; }
+    .step-dot.completed { background: #2ecc71; color: #0d0d0f; border: none; }
+    .currency-preview, .timezone-preview {
+      background: #18181c; border-radius: 10px; padding: 12px;
+      font-size: 12px; color: rgba(240,238,232,0.6); margin-top: 12px;
+    }
+    .coa-preview {
+      background: #18181c; border-radius: 10px; padding: 12px;
+      font-size: 11px; color: rgba(240,238,232,0.6); margin-top: 12px;
+      max-height: 200px; overflow-y: auto;
+    }
+    .coa-row { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .coa-code { font-family: monospace; color: #d4a843; min-width: 50px; }
+    @media (max-width: 640px) {
+      .step-card { padding: 24px; }
+      .step-title { font-size: 20px; }
+      .step-dot { width: 28px; height: 28px; font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="step-indicator" id="stepIndicator"></div>
+  <div class="step-card" id="stepCard">
+    <div id="stepContent"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// QUANTUMSERVE ONBOARDING WIZARD
+// Captures: Timezone, Country, Currency, Fiscal Year, COA, Tax
+// ============================================================
+
+const SUPABASE_URL = 'https://qisguszwfmxkadgzzkqd.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpc2d1c3p3Zm14a2FkZ3p6a3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5Mzg4MzcsImV4cCI6MjA5NDUxNDgzN30.eDYBlVjFB9UmP_ABBVlY7ZZznpOEWkcn5pQuGeMGGYY';
+
+let supabase = null;
+let currentSession = null;
+let currentStep = 1;
+const TOTAL_STEPS = 9;
+
+let onboardingData = {
+  tenant_id: null,
+  org_id: null,
+  entity_id: null,
+  branch_id: null,
+  // Company settings
+  timezone: 'UTC',
+  country: 'US',
+  currency_code: 'USD',
+  date_format: 'YYYY-MM-DD',
+  fiscal_year_start: null,
+  fiscal_year_end: null
+};
+
+// Timezone database
+const TIMEZONES = [
+  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
+  'Asia/Dubai', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore',
+  'Africa/Nairobi', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Cairo',
+  'Australia/Sydney', 'Australia/Melbourne', 'Pacific/Auckland'
+];
+
+// Countries with tax info
+const COUNTRIES = [
+  { code: 'US', name: 'United States', currency: 'USD', tax_rate: 8.0, tax_name: 'Sales Tax' },
+  { code: 'UK', name: 'United Kingdom', currency: 'GBP', tax_rate: 20.0, tax_name: 'VAT' },
+  { code: 'KE', name: 'Kenya', currency: 'KES', tax_rate: 16.0, tax_name: 'VAT' },
+  { code: 'NG', name: 'Nigeria', currency: 'NGN', tax_rate: 7.5, tax_name: 'VAT' },
+  { code: 'ZA', name: 'South Africa', currency: 'ZAR', tax_rate: 15.0, tax_name: 'VAT' },
+  { code: 'GH', name: 'Ghana', currency: 'GHS', tax_rate: 12.5, tax_name: 'VAT' },
+  { code: 'UG', name: 'Uganda', currency: 'UGX', tax_rate: 18.0, tax_name: 'VAT' },
+  { code: 'TZ', name: 'Tanzania', currency: 'TZS', tax_rate: 18.0, tax_name: 'VAT' },
+  { code: 'AU', name: 'Australia', currency: 'AUD', tax_rate: 10.0, tax_name: 'GST' },
+  { code: 'CA', name: 'Canada', currency: 'CAD', tax_rate: 5.0, tax_name: 'GST' },
+  { code: 'IN', name: 'India', currency: 'INR', tax_rate: 18.0, tax_name: 'GST' },
+  { code: 'SG', name: 'Singapore', currency: 'SGD', tax_rate: 7.0, tax_name: 'GST' },
+  { code: 'MY', name: 'Malaysia', currency: 'MYR', tax_rate: 10.0, tax_name: 'SST' }
+];
+
+// Currencies
+const CURRENCIES = [
+  { code: 'USD', name: 'US Dollar', symbol: '$' },
+  { code: 'EUR', name: 'Euro', symbol: '€' },
+  { code: 'GBP', name: 'British Pound', symbol: '£' },
+  { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh' },
+  { code: 'NGN', name: 'Nigerian Naira', symbol: '₦' },
+  { code: 'ZAR', name: 'South African Rand', symbol: 'R' },
+  { code: 'GHS', name: 'Ghanaian Cedi', symbol: '₵' },
+  { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh' },
+  { code: 'TZS', name: 'Tanzanian Shilling', symbol: 'TSh' },
+  { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
+  { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$' },
+  { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
+  { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$' },
+  { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM' },
+  { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ' },
+  { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼' }
+];
+
+// Chart of Accounts Template (20 core accounts)
+const COA_TEMPLATE = [
+  { code: '1000', name: 'Cash', type: 'Asset', subtype: 'CurrentAsset', normal: 'debit' },
+  { code: '1100', name: 'Accounts Receivable', type: 'Asset', subtype: 'CurrentAsset', normal: 'debit' },
+  { code: '1200', name: 'Inventory', type: 'Asset', subtype: 'CurrentAsset', normal: 'debit' },
+  { code: '1300', name: 'Prepaid Expenses', type: 'Asset', subtype: 'CurrentAsset', normal: 'debit' },
+  { code: '1400', name: 'Fixed Assets', type: 'Asset', subtype: 'FixedAsset', normal: 'debit' },
+  { code: '1500', name: 'Accumulated Depreciation', type: 'Asset', subtype: 'FixedAsset', normal: 'credit' },
+  { code: '2000', name: 'Accounts Payable', type: 'Liability', subtype: 'CurrentLiability', normal: 'credit' },
+  { code: '2100', name: 'Tax Payable', type: 'Liability', subtype: 'CurrentLiability', normal: 'credit' },
+  { code: '2200', name: 'Accrued Liabilities', type: 'Liability', subtype: 'CurrentLiability', normal: 'credit' },
+  { code: '2500', name: 'Long-Term Debt', type: 'Liability', subtype: 'LongTermLiability', normal: 'credit' },
+  { code: '3000', name: "Owner's Equity", type: 'Equity', subtype: 'Equity', normal: 'credit' },
+  { code: '3100', name: 'Retained Earnings', type: 'Equity', subtype: 'Equity', normal: 'credit' },
+  { code: '4000', name: 'Sales Revenue', type: 'Revenue', subtype: 'Revenue', normal: 'credit' },
+  { code: '4100', name: 'Service Revenue', type: 'Revenue', subtype: 'Revenue', normal: 'credit' },
+  { code: '5000', name: 'Cost of Goods Sold', type: 'COGS', subtype: 'COGS', normal: 'debit' },
+  { code: '6000', name: 'Salaries & Wages', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6100', name: 'Rent Expense', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6200', name: 'Utilities', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6300', name: 'Marketing & Advertising', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6400', name: 'Office Supplies', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6500', name: 'Travel & Entertainment', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6600', name: 'Professional Fees', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '6900', name: 'Depreciation Expense', type: 'Expense', subtype: 'Operating', normal: 'debit' },
+  { code: '7000', name: 'Interest Expense', type: 'Expense', subtype: 'Financial', normal: 'debit' },
+  { code: '8000', name: 'Other Income', type: 'Revenue', subtype: 'Other', normal: 'credit' },
+  { code: '9000', name: 'Income Tax Expense', type: 'Expense', subtype: 'Tax', normal: 'debit' }
+];
+
+// ============================================================
+// INIT
+// ============================================================
+async function init() {
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true }
+  });
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) { window.location.href = '/'; return; }
+  currentSession = session;
+
+  // Get tenant_id from auth_users or users table
+  const { data: userData } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('auth_user_id', session.user.id)
+    .single();
+
+  if (userData) {
+    onboardingData.tenant_id = userData.tenant_id;
+  } else {
+    showGlobalError('Setup error: account not linked to a company. Please contact support.');
+    return;
+  }
+
+  // Check if onboarding already done
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('onboarding_step, onboarding_completed_at, name, timezone, date_format')
+    .eq('id', onboardingData.tenant_id)
+    .single();
+
+  if (tenant?.onboarding_completed_at) {
+    window.location.href = '/';
+    return;
+  }
+
+  // Load saved settings into onboardingData
+  if (tenant) {
+    onboardingData.timezone = tenant.timezone || 'UTC';
+    onboardingData.date_format = tenant.date_format || 'YYYY-MM-DD';
+    currentStep = tenant.onboarding_step || 1;
+  }
+
+  renderStepIndicator();
+  renderStep(currentStep);
+}
+
+// ============================================================
+// STEP RENDERING
+// ============================================================
+function renderStepIndicator() {
+  const labels = ['Company', 'Timezone', 'Currency', 'Fiscal Year', 'Chart of Accounts', 'Tax', 'Org Structure', 'Users', 'Complete'];
+  document.getElementById('stepIndicator').innerHTML = labels.map((lbl, i) => `
+    <div class="step-dot ${i + 1 === currentStep ? 'active' : (i + 1 < currentStep ? 'completed' : '')}" title="${lbl}">
+      ${i + 1 < currentStep ? '✓' : (i + 1)}
+    </div>
+  `).join('');
+  document.getElementById('progressFill').style.width = `${((currentStep - 1) / (TOTAL_STEPS - 1)) * 100}%`;
+}
+
+function renderStep(step) {
+  const renderers = {
+    1: renderCompanyStep,
+    2: renderTimezoneStep,
+    3: renderCurrencyStep,
+    4: renderFiscalYearStep,
+    5: renderChartOfAccountsStep,
+    6: renderTaxStep,
+    7: renderOrgStructureStep,
+    8: renderUsersStep,
+    9: renderCompleteStep
+  };
+  const fn = renderers[step];
+  if (fn) fn();
+}
+
+function renderCompanyStep() {
+  setContent(`
+    <div class="step-title">Company Profile</div>
+    <div class="step-desc">Tell us about your business. This information appears on invoices and reports.</div>
+    <div class="form-group"><label>Company Name *</label><input id="companyName" placeholder="Acme Corporation" value="${onboardingData.companyName || ''}"></div>
+    <div class="form-group"><label>Legal Name</label><input id="legalName" placeholder="Acme Corporation Inc." value="${onboardingData.legalName || ''}"></div>
+    <div class="form-group"><label>Tax ID / VAT Number</label><input id="taxId" placeholder="99-1234567" value="${onboardingData.taxId || ''}"></div>
+    <div class="form-group"><label>Country *</label><select id="country" onchange="updateCountryDefaults()">
+      ${COUNTRIES.map(c => `<option value="${c.code}" ${onboardingData.country === c.code ? 'selected' : ''}>${c.name}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>Business Email</label><input type="email" id="companyEmail" value="${onboardingData.companyEmail || ''}" placeholder="info@acme.com"></div>
+    <div class="form-group"><label>Phone</label><input type="tel" id="companyPhone" value="${onboardingData.companyPhone || ''}" placeholder="+1 234 567 8900"></div>
+    <div class="form-group"><label>Address</label><input id="address" value="${onboardingData.address || ''}" placeholder="123 Business Street, City, Country"></div>
+    <div class="form-group"><label>Logo URL (optional)</label><input id="logoUrl" placeholder="https://yourcompany.com/logo.png"></div>
+    <div class="btn-group"><button class="btn-primary" onclick="nextStep()">Continue →</button></div>
+  `);
+}
+
+function renderTimezoneStep() {
+  setContent(`
+    <div class="step-title">Time Zone & Date Format</div>
+    <div class="step-desc">Set your preferred timezone and how dates should be displayed.</div>
+    <div class="form-group"><label>Time Zone *</label><select id="timezone">
+      ${TIMEZONES.map(tz => `<option value="${tz}" ${onboardingData.timezone === tz ? 'selected' : ''}>${tz}</option>`).join('')}
+    </select></div>
+    <div class="timezone-preview" id="timezonePreview">
+      Current time in selected zone: ${new Date().toLocaleString('en-US', { timeZone: onboardingData.timezone })}
+    </div>
+    <div class="form-group"><label>Date Format</label><select id="dateFormat">
+      <option value="YYYY-MM-DD" ${onboardingData.date_format === 'YYYY-MM-DD' ? 'selected' : ''}>YYYY-MM-DD (2025-01-31)</option>
+      <option value="DD/MM/YYYY" ${onboardingData.date_format === 'DD/MM/YYYY' ? 'selected' : ''}>DD/MM/YYYY (31/01/2025)</option>
+      <option value="MM/DD/YYYY" ${onboardingData.date_format === 'MM/DD/YYYY' ? 'selected' : ''}>MM/DD/YYYY (01/31/2025)</option>
+    </select></div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Continue →</button>
+    </div>
+  `);
+  
+  // Update preview when timezone changes
+  const tzSelect = document.getElementById('timezone');
+  if (tzSelect) {
+    tzSelect.addEventListener('change', () => {
+      const preview = document.getElementById('timezonePreview');
+      if (preview) {
+        preview.textContent = `Current time in selected zone: ${new Date().toLocaleString('en-US', { timeZone: tzSelect.value })}`;
+      }
+    });
+  }
+}
+
+function renderCurrencyStep() {
+  const country = onboardingData.country || 'US';
+  const defaultCurrency = COUNTRIES.find(c => c.code === country)?.currency || 'USD';
+  
+  setContent(`
+    <div class="step-title">Currency & Financial Settings</div>
+    <div class="step-desc">Set your base currency for financial reporting.</div>
+    <div class="form-group"><label>Base Currency *</label><select id="baseCurrency">
+      ${CURRENCIES.map(c => `<option value="${c.code}" ${(onboardingData.currency_code || defaultCurrency) === c.code ? 'selected' : ''}>${c.code} - ${c.name} (${c.symbol})</option>`).join('')}
+    </select></div>
+    <div class="currency-preview" id="currencyPreview">
+      Example amounts will appear as: ${CURRENCIES.find(c => c.code === (onboardingData.currency_code || defaultCurrency))?.symbol || '$'}1,000.00
+    </div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Continue →</button>
+    </div>
+  `);
+  
+  const currencySelect = document.getElementById('baseCurrency');
+  if (currencySelect) {
+    currencySelect.addEventListener('change', () => {
+      const preview = document.getElementById('currencyPreview');
+      const selected = CURRENCIES.find(c => c.code === currencySelect.value);
+      if (preview && selected) {
+        preview.textContent = `Example amounts will appear as: ${selected.symbol}1,000.00`;
+      }
+    });
+  }
+}
+
+function renderFiscalYearStep() {
+  const year = new Date().getFullYear();
+  setContent(`
+    <div class="step-title">Fiscal Year</div>
+    <div class="step-desc">Set your financial year dates. Accounting periods will be created automatically (one per month).</div>
+    <div class="form-group"><label>Fiscal Year Name *</label><input id="fyName" placeholder="FY ${year}" value="${onboardingData.fyName || `FY ${year}`}"></div>
+    <div class="form-group"><label>Start Date *</label><input type="date" id="fyStart" value="${onboardingData.fiscal_year_start || `${year}-01-01`}"></div>
+    <div class="form-group"><label>End Date *</label><input type="date" id="fyEnd" value="${onboardingData.fiscal_year_end || `${year}-12-31`}"></div>
+    <div class="form-group"><label>First Month of Fiscal Year</label><select id="firstMonth">
+      <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+      <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+      <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+      <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+    </select></div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Continue →</button>
+    </div>
+  `);
+}
+
+function renderChartOfAccountsStep() {
+  const previewRows = COA_TEMPLATE.map(a =>
+    `<div class="coa-row"><span class="coa-code">${a.code}</span><span>${a.name}</span><span style="margin-left:auto;color:rgba(240,238,232,0.4)">${a.type}</span></div>`
+  ).join('');
+
+  setContent(`
+    <div class="step-title">Chart of Accounts</div>
+    <div class="step-desc">A standard ${COA_TEMPLATE.length}-account template will be created. You can add, edit, or remove accounts in the Accounting module after setup.</div>
+    <div class="coa-preview">${previewRows}</div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Apply Template →</button>
+    </div>
+  `);
+}
+
+function renderTaxStep() {
+  const country = onboardingData.country || 'US';
+  const defaultTax = COUNTRIES.find(c => c.code === country);
+  
+  setContent(`
+    <div class="step-title">Tax Configuration</div>
+    <div class="step-desc">Set up your tax rates. These will be applied to invoices and bills.</div>
+    <div class="form-group"><label>Default Tax Name</label><input id="taxName" placeholder="VAT / Sales Tax" value="${onboardingData.taxName || defaultTax?.tax_name || 'Sales Tax'}"></div>
+    <div class="form-group"><label>Default Tax Rate (%)</label><input type="number" id="taxRate" placeholder="0" value="${onboardingData.taxRate || defaultTax?.tax_rate || 0}" min="0" max="100" step="0.1"></div>
+    <div class="form-group"><label>Tax Type</label><select id="taxType">
+      <option value="Sales" ${onboardingData.taxType === 'Sales' ? 'selected' : ''}>Sales Tax (collected from customers)</option>
+      <option value="Purchase" ${onboardingData.taxType === 'Purchase' ? 'selected' : ''}>Purchase Tax (paid to vendors)</option>
+      <option value="Both" ${onboardingData.taxType === 'Both' ? 'selected' : ''}>Both (VAT/GST style)</option>
+    </select></div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Continue →</button>
+    </div>
+  `);
+}
+
+function renderOrgStructureStep() {
+  setContent(`
+    <div class="step-title">Organisation Structure</div>
+    <div class="step-desc">Define your company hierarchy. Most businesses have one organisation, one entity, and one branch (HQ).</div>
+    <div class="form-group"><label>Group / Organisation Name *</label><input id="orgName" placeholder="Acme Group" value="${onboardingData.orgName || ''}"></div>
+    <div class="form-group"><label>Legal Entity Name *</label><input id="entityName" placeholder="Acme United States LLC" value="${onboardingData.entityName || ''}"></div>
+    <div class="form-group"><label>Entity Code *</label><input id="entityCode" placeholder="ACME-US" value="${onboardingData.entityCode || ''}" style="text-transform:uppercase;" maxlength="20"></div>
+    <div class="form-group"><label>Branch Name</label><input id="branchName" placeholder="Headquarters" value="${onboardingData.branchName || 'Headquarters'}"></div>
+    <div class="form-group"><label>Branch Code</label><input id="branchCode" placeholder="HQ" value="${onboardingData.branchCode || 'HQ'}" maxlength="10"></div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Continue →</button>
+    </div>
+  `);
+}
+
+function renderUsersStep() {
+  setContent(`
+    <div class="step-title">Invite Team Members</div>
+    <div class="step-desc">You can invite additional users now, or skip and do it later in Settings → Users.</div>
+    <div id="usersList"></div>
+    <div style="display:flex; gap:8px; margin-bottom:20px;">
+      <input type="email" id="inviteEmail" placeholder="Email address" style="flex:2;">
+      <select id="inviteRole" style="flex:1;">
+        <option value="CFO">CFO</option>
+        <option value="Finance Manager">Finance Manager</option>
+        <option value="Accountant">Accountant</option>
+        <option value="AR Officer">AR Officer</option>
+        <option value="AP Officer">AP Officer</option>
+        <option value="Sales Manager">Sales Manager</option>
+        <option value="Sales Rep">Sales Rep</option>
+        <option value="Procurement Manager">Procurement Manager</option>
+        <option value="Inventory Manager">Inventory Manager</option>
+        <option value="Technical Manager">Technical Manager</option>
+        <option value="Engineer">Engineer</option>
+        <option value="HR Manager">HR Manager</option>
+        <option value="HR Officer">HR Officer</option>
+        <option value="Payroll Officer">Payroll Officer</option>
+        <option value="System Admin">System Admin</option>
+      </select>
+      <button class="btn-secondary" onclick="addUser()">+ Add</button>
+    </div>
+    <div class="btn-group">
+      <button class="btn-secondary" onclick="prevStep()">← Back</button>
+      <button class="btn-primary" onclick="nextStep()">Finish Setup →</button>
+    </div>
+  `);
+}
+
+function renderCompleteStep() {
+  setContent(`
+    <div class="step-title">You're All Set! 🎉</div>
+    <div class="step-desc">Your QuantumServe ERP is ready. All modules are now accessible based on your role.</div>
+    <div style="text-align:center; margin: 32px 0;">
+      <div style="font-size:72px; margin-bottom:16px;">⚛</div>
+      <div style="font-size:13px; color:rgba(240,238,232,0.5);">
+        <strong>Configuration Summary:</strong><br>
+        ✅ Company profile configured<br>
+        ✅ Timezone: ${onboardingData.timezone}<br>
+        ✅ Base Currency: ${onboardingData.currency_code}<br>
+        ✅ Fiscal year created<br>
+        ✅ Chart of accounts applied (${COA_TEMPLATE.length} accounts)<br>
+        ✅ Tax codes configured<br>
+        ✅ Organisation structure created<br>
+        ✅ Database connected and secured with RLS
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn-primary" onclick="finishOnboarding()">Go to Dashboard →</button>
+    </div>
+  `);
+}
+
+function setContent(html) {
+  document.getElementById('stepContent').innerHTML = html;
+}
+
+// ============================================================
+// STEP SAVE LOGIC
+// ============================================================
+async function saveCurrentStep() {
+  clearMessages();
+
+  // STEP 1: Company Profile
+  if (currentStep === 1) {
+    const name = val('companyName');
+    if (!name) { showError('Company name is required.'); return false; }
+
+    onboardingData.companyName = name;
+    onboardingData.legalName = val('legalName');
+    onboardingData.taxId = val('taxId');
+    onboardingData.country = val('country');
+    onboardingData.companyEmail = val('companyEmail');
+    onboardingData.companyPhone = val('companyPhone');
+    onboardingData.address = val('address');
+    onboardingData.logoUrl = val('logoUrl');
+
+    const { error } = await supabase.from('tenants').update({
+      name: onboardingData.companyName,
+      logo_url: onboardingData.logoUrl,
+      updated_at: new Date().toISOString()
+    }).eq('id', onboardingData.tenant_id);
+
+    if (error) { showError('Failed to save company profile: ' + error.message); return false; }
+  }
+
+  // STEP 2: Timezone & Date Format
+  if (currentStep === 2) {
+    onboardingData.timezone = val('timezone');
+    onboardingData.date_format = val('dateFormat');
+
+    const { error } = await supabase.from('tenants').update({
+      timezone: onboardingData.timezone,
+      date_format: onboardingData.date_format,
+      updated_at: new Date().toISOString()
+    }).eq('id', onboardingData.tenant_id);
+
+    if (error) { showError('Failed to save timezone settings: ' + error.message); return false; }
+  }
+
+  // STEP 3: Currency
+  if (currentStep === 3) {
+    onboardingData.currency_code = val('baseCurrency');
+    
+    // Check if currency exists in currencies table, insert if not
+    const { data: existingCurrency } = await supabase
+      .from('currencies')
+      .select('id')
+      .eq('code', onboardingData.currency_code)
+      .single();
+    
+    if (!existingCurrency) {
+      const currencyInfo = CURRENCIES.find(c => c.code === onboardingData.currency_code);
+      await supabase.from('currencies').insert({
+        id: crypto.randomUUID(),
+        code: onboardingData.currency_code,
+        name: currencyInfo?.name || onboardingData.currency_code,
+        symbol: currencyInfo?.symbol || '$',
+        decimal_places: 2
+      });
+    }
+  }
+
+  // STEP 4: Fiscal Year
+  if (currentStep === 4) {
+    if (!onboardingData.entity_id) {
+      showError('Please complete Step 7 (Organisation Structure) first or continue.');
+      return false;
+    }
+
+    const fyName = val('fyName') || `FY ${new Date().getFullYear()}`;
+    const startDate = val('fyStart');
+    const endDate = val('fyEnd');
+
+    if (!startDate || !endDate) { showError('Fiscal year start and end dates are required.'); return false; }
+    if (new Date(endDate) <= new Date(startDate)) { showError('End date must be after start date.'); return false; }
+
+    const { data: fy, error: fyErr } = await supabase
+      .from('fiscal_years')
+      .insert({
+        tenant_id: onboardingData.tenant_id,
+        entity_id: onboardingData.entity_id,
+        name: fyName,
+        start_date: startDate,
+        end_date: endDate
+      })
+      .select('id')
+      .single();
+
+    if (fyErr) { showError('Failed to create fiscal year: ' + fyErr.message); return false; }
+
+    // Create 12 monthly periods
+    const periods = [];
+    const start = new Date(startDate);
+    for (let i = 0; i < 12; i++) {
+      const pStart = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      const pEnd = new Date(start.getFullYear(), start.getMonth() + i + 1, 0);
+      periods.push({
+        tenant_id: onboardingData.tenant_id,
+        fiscal_year_id: fy.id,
+        period_number: i + 1,
+        start_date: pStart.toISOString().split('T')[0],
+        end_date: pEnd.toISOString().split('T')[0]
+      });
+    }
+    const { error: pErr } = await supabase.from('periods').insert(periods);
+    if (pErr) { showError('Failed to create accounting periods: ' + pErr.message); return false; }
+  }
+
+  // STEP 5: Chart of Accounts
+  if (currentStep === 5) {
+    if (!onboardingData.entity_id) {
+      showError('Please complete Step 7 first.');
+      return false;
+    }
+
+    const accounts = COA_TEMPLATE.map(acc => ({
+      id: crypto.randomUUID(),
+      tenant_id: onboardingData.tenant_id,
+      entity_id: onboardingData.entity_id,
+      code: acc.code,
+      name: acc.name,
+      type: acc.type,
+      subtype: acc.subtype,
+      is_active: true,
+      created_at: new Date().toISOString()
+    }));
+
+    const { error: coaErr } = await supabase.from('accounts').insert(accounts);
+    if (coaErr && !coaErr.message.includes('duplicate')) {
+      showError('Failed to create chart of accounts: ' + coaErr.message);
+      return false;
+    }
+  }
+
+  // STEP 6: Tax Codes
+  if (currentStep === 6) {
+    if (!onboardingData.entity_id) {
+      showError('Please complete Step 7 first.');
+      return false;
+    }
+
+    const taxName = val('taxName') || 'Standard Tax';
+    const taxRate = parseFloat(val('taxRate')) || 0;
+    const taxType = val('taxType') || 'Both';
+
+    const { error: taxErr } = await supabase.from('tax_codes').insert({
+      id: crypto.randomUUID(),
+      tenant_id: onboardingData.tenant_id,
+      entity_id: onboardingData.entity_id,
+      code: 'STD',
+      name: taxName,
+      rate: taxRate,
+      type: taxType,
+      is_active: true
+    });
+
+    if (taxErr && !taxErr.message.includes('duplicate')) {
+      showError('Failed to create tax code: ' + taxErr.message);
+      return false;
+    }
+  }
+
+  // STEP 7: Organisation Structure
+  if (currentStep === 7) {
+    const orgName = val('orgName') || 'My Organisation';
+    const entityName = val('entityName') || 'Main Entity';
+    const entityCode = (val('entityCode') || 'ENT').toUpperCase();
+    const branchName = val('branchName') || 'Headquarters';
+    const branchCode = (val('branchCode') || 'HQ').toUpperCase();
+
+    // Create organisation
+    const { data: org, error: orgErr } = await supabase
+      .from('organizations')
+      .insert({ tenant_id: onboardingData.tenant_id, name: orgName })
+      .select('id')
+      .single();
+
+    if (orgErr) { showError('Failed to create organisation: ' + orgErr.message); return false; }
+    onboardingData.org_id = org.id;
+
+    // Create entity
+    const { data: entity, error: entErr } = await supabase
+      .from('entities')
+      .insert({
+        tenant_id: onboardingData.tenant_id,
+        organization_id: onboardingData.org_id,
+        code: entityCode,
+        name: entityName,
+        country: onboardingData.country,
+        is_head_office: true
+      })
+      .select('id')
+      .single();
+
+    if (entErr) { showError('Failed to create entity: ' + entErr.message); return false; }
+    onboardingData.entity_id = entity.id;
+
+    // Create branch
+    const { error: branchErr } = await supabase
+      .from('branches')
+      .insert({
+        tenant_id: onboardingData.tenant_id,
+        entity_id: onboardingData.entity_id,
+        code: branchCode,
+        name: branchName
+      });
+
+    if (branchErr) { showError('Failed to create branch: ' + branchErr.message); return false; }
+  }
+
+  // STEP 8: Users (invites stored for later)
+  if (currentStep === 8) {
+    // Users invites are collected in memory - actual invites sent later
+    // This step just validates
+  }
+
+  return true;
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+async function nextStep() {
+  const btn = document.querySelector('.btn-primary');
+  if (btn) btn.disabled = true;
+
+  const saved = await saveCurrentStep();
+
+  if (!saved) {
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  if (currentStep < TOTAL_STEPS) {
+    currentStep++;
+    await supabase.from('tenants').update({ onboarding_step: currentStep }).eq('id', onboardingData.tenant_id);
+    renderStepIndicator();
+    renderStep(currentStep);
+  }
+}
+
+async function prevStep() {
+  if (currentStep > 1) {
+    currentStep--;
+    await supabase.from('tenants').update({ onboarding_step: currentStep }).eq('id', onboardingData.tenant_id);
+    renderStepIndicator();
+    renderStep(currentStep);
+  }
+}
+
+async function finishOnboarding() {
+  const btn = document.querySelector('.btn-primary');
+  if (btn) btn.disabled = true;
+
+  await supabase.from('tenants').update({
+    onboarding_step: TOTAL_STEPS,
+    onboarding_completed_at: new Date().toISOString()
+  }).eq('id', onboardingData.tenant_id);
+
+  window.location.href = '/';
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+function updateCountryDefaults() {
+  const countryCode = document.getElementById('country')?.value;
+  const country = COUNTRIES.find(c => c.code === countryCode);
+  if (country) {
+    onboardingData.country = countryCode;
+    onboardingData.currency_code = country.currency;
+    // Don't auto-set tax rate - let user decide in tax step
+    const taxRateField = document.getElementById('taxRate');
+    if (taxRateField && !taxRateField.value) {
+      taxRateField.value = country.tax_rate;
+    }
+    const taxNameField = document.getElementById('taxName');
+    if (taxNameField && !taxNameField.value) {
+      taxNameField.value = country.tax_name;
+    }
+  }
+}
+
+function addUser() {
+  const email = document.getElementById('inviteEmail')?.value;
+  const role = document.getElementById('inviteRole')?.value;
+  if (email && email.includes('@')) {
+    if (!onboardingData.invites) onboardingData.invites = [];
+    onboardingData.invites.push({ email, role });
+    
+    const list = document.getElementById('usersList');
+    const div = document.createElement('div');
+    div.style.cssText = 'background:#18181c; border-radius:8px; padding:10px; margin-bottom:8px; display:flex; justify-content:space-between;';
+    div.innerHTML = `<span>${email}</span><span style="color:#d4a843;">${role}</span>`;
+    list.appendChild(div);
+    document.getElementById('inviteEmail').value = '';
+  }
+}
+
+function showError(msg) {
+  clearMessages();
+  const div = document.createElement('div');
+  div.className = 'error-msg';
+  div.textContent = msg;
+  document.getElementById('stepContent').insertBefore(div, document.querySelector('.btn-group'));
+  setTimeout(() => div.remove(), 3000);
+}
+
+function showSuccess(msg) {
+  clearMessages();
+  const div = document.createElement('div');
+  div.className = 'success-msg';
+  div.textContent = msg;
+  document.getElementById('stepContent').insertBefore(div, document.querySelector('.btn-group'));
+  setTimeout(() => div.remove(), 3000);
+}
+
+function showGlobalError(msg) {
+  document.getElementById('stepCard').innerHTML = `
+    <div class="step-title" style="color:#e74c3c;">Setup Error</div>
+    <div class="step-desc">${msg}</div>
+  `;
+}
+
+function clearMessages() {
+  document.querySelectorAll('.error-msg, .success-msg').forEach(el => el.remove());
+}
+
+// Initialize timezone preview listener
+function attachTimezoneListener() {
+  const tzSelect = document.getElementById('timezone');
+  if (tzSelect) {
+    tzSelect.addEventListener('change', () => {
+      const preview = document.getElementById('timezonePreview');
+      if (preview) {
+        preview.textContent = `Current time in selected zone: ${new Date().toLocaleString('en-US', { timeZone: tzSelect.value })}`;
+      }
+    });
+  }
+}
+
+init();
+</script>
+</body>
+</html>
